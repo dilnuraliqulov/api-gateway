@@ -1,0 +1,98 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        # Main Gym Service Routes
+        - id: gym-service
+          uri: lb://GYM-SERVICE
+          predicates:
+            - Path=/api/v1/trainers/**,/api/v1/trainees/**,/api/v1/trainings/**,/api/v1/auth/**,/api/v1/training-types/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gymServiceCircuitBreaker
+                fallbackUri: forward:/fallback/gym-service
+            - AddRequestHeader=X-Gateway-Request, true
+
+        # Training Workload Service Routes
+        - id: training-workload-service
+          uri: lb://TRAINING-WORKLOAD-SERVICE
+          predicates:
+            - Path=/api/v1/workload/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: workloadServiceCircuitBreaker
+                fallbackUri: forward:/fallback/workload-service
+            - AddRequestHeader=X-Gateway-Request, true
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.lang.Exception
+    instances:
+      gymServiceCircuitBreaker:
+        baseConfig: default
+      workloadServiceCircuitBreaker:
+        baseConfig: default
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:mySecretKeyForJWTTokenGenerationThatIsLongEnoughForHS256Algorithm}
+  expiration: 86400000
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.example.api_gateaway: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%X{transactionId}] [%thread] %-5level %logger{36} - %msg%n"
